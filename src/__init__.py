@@ -23,23 +23,27 @@ __all__ = [
     "Group",
 ]
 
-from .bond_constraints import (
+from .group_selfies.bond_constraints import (
     get_preset_constraints,
     get_semantic_constraints,
     get_semantic_robust_alphabet,
     set_semantic_constraints,
 )
-from .group_decoder import group_decoder
-from .group_encoder import group_encoder
+from .group_selfies.group_decoder import group_decoder
+from .group_selfies.group_encoder import group_encoder
 
-from .utils.selfies_utils import get_alphabet_from_selfies, len_selfies, split_selfies
+from .group_selfies.utils.selfies_utils import (
+    get_alphabet_from_selfies,
+    len_selfies,
+    split_selfies,
+)
 import group_selfies.group_grammar
 import group_selfies.group_mol_graph
-from .group_mol_graph import (
+from .group_selfies.group_mol_graph import (
     MolecularGraph,
     Group,
 )
-from .group_grammar import GroupGrammar
-from .utils.fragment_utils import (
+from .group_selfies.group_grammar import GroupGrammar
+from .group_selfies.utils.fragment_utils import (
     fragment_mols,
 )

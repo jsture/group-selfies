@@ -1,4 +1,22 @@
+from __future__ import annotations
+from typing import (
+    Iterator,
+    List,
+    Dict,
+    Set,
+    Tuple,
+    Optional,
+    Union,
+    DefaultDict,
+    Any,
+    TypeVar,
+    Generic,
+)
 from itertools import chain
+from collections import defaultdict
+from rdkit import Chem
+from rdkit.Chem import AllChem, BondType
+
 from group_selfies.grammar_rules import (
     next_atom_state,
     next_branch_state,
@@ -13,7 +31,6 @@ from group_selfies.grammar_rules import (
 from group_selfies.utils.selfies_utils import split_selfies
 
 import re
-from rdkit import Chem
 from group_selfies.constants import (
     POP_SYMBOL,
     NEGATIVE_RING_SYMBOL,
@@ -21,20 +38,19 @@ from group_selfies.constants import (
     INVERT_DIR,
 )
 from group_selfies.bond_constraints import get_bonding_capacity
-from collections import defaultdict
 
 
 class DecoderError(Exception):
     pass
 
 
-def _tokenize_selfies(selfies):
+def _tokenize_selfies(selfies: Union[str, List[str]]) -> Iterator[str]:
     if isinstance(selfies, str):
         symbol_iter = split_selfies(selfies)
     elif isinstance(selfies, list):
         symbol_iter = selfies
     else:
-        raise ValueError()  # should not happen
+        raise ValueError("Invalid selfies input type")
 
     try:
         for symbol in symbol_iter:
@@ -45,12 +61,14 @@ def _tokenize_selfies(selfies):
         raise DecoderError(str(err)) from None
 
 
-def _raise_decoder_error(selfies, invalid_symbol):
+def _raise_decoder_error(selfies: str, invalid_symbol: str) -> None:
     err_msg = "invalid symbol '{}'\n\tSELFIES: {}".format(invalid_symbol, selfies)
     raise DecoderError(err_msg)
 
 
-def _read_index_from_selfies(symbol_iter, n_symbols):
+def _read_index_from_selfies(
+    symbol_iter: Iterator[str], n_symbols: int
+) -> Optional[int]:
     index_symbols = []
     for _ in range(n_symbols):
         try:
@@ -63,7 +81,9 @@ def _read_index_from_selfies(symbol_iter, n_symbols):
     return get_index_from_selfies(*index_symbols)
 
 
-def parse_ring_length(symbol_iter, n_symbols):
+def parse_ring_length(
+    symbol_iter: Iterator[str], n_symbols: int
+) -> Optional[Tuple[int, bool]]:
     try:
         next_one = next(symbol_iter)
         if next_one == POP_SYMBOL:
@@ -84,7 +104,9 @@ def parse_ring_length(symbol_iter, n_symbols):
         return None
 
 
-def update_member_idxs(member_idxs, attachment_point_idx):
+def update_member_idxs(
+    member_idxs: List[Optional[int]], attachment_point_idx: int
+) -> List[Optional[int]]:
     new_member_idxs = []
     for i, idx in enumerate(member_idxs):
         if idx is None:
@@ -99,16 +121,21 @@ def update_member_idxs(member_idxs, attachment_point_idx):
 
 
 class Counter:
-    def __init__(self, value):
+    def __init__(self, value: int):
         self.value = value
 
-    def get(self):
+    def get(self) -> int:
         old = self.value
         self.value += 1
         return old
 
 
-def find_next_available(current_idx, rel_idx, member_idxs, attachment_points):
+def find_next_available(
+    current_idx: int,
+    rel_idx: int,
+    member_idxs: List[Optional[int]],
+    attachment_points: List[int],
+) -> Optional[int]:
     current = (current_idx + rel_idx) % len(attachment_points)
     for shift in range(len(attachment_points)):
         inner = (current + shift) % len(attachment_points)
@@ -124,7 +151,7 @@ bond_types = {
 }
 
 
-def set_id(atom, idx):
+def set_id(atom: Chem.Atom, idx: int) -> None:
     if atom.HasProp("id"):
         atom.SetProp("id", f"{atom.GetProp('id')},{idx}")
     else:
@@ -135,17 +162,17 @@ _exhausted = object()
 
 
 def selfies_to_graph_iterative(
-    grammar,
-    symbol_iter,
-    selfies=None,
-    rings=None,
-    dummy_counter=None,
-    place_from_idx=None,
-    inverse_place=None,
-    previous_att_idx=None,
-    group_atom=None,
-    verbose=False,
-):
+    grammar: Any,
+    symbol_iter: Iterator[str],
+    selfies: Optional[str] = None,
+    rings: Optional[List[Tuple[int, int, Tuple[int, Tuple[str, str]]]]] = None,
+    dummy_counter: Optional[Counter] = None,
+    place_from_idx: Optional[Dict[int, int]] = None,
+    inverse_place: Optional[List[int]] = None,
+    previous_att_idx: Optional[int] = None,
+    group_atom: Optional[Dict[int, Tuple[Any, int]]] = None,
+    verbose: bool = False,
+) -> Chem.RWMol:
     mol = Chem.RWMol()
     stack = [(None, 0, False)]
     while (symbol := next(symbol_iter, _exhausted)) != _exhausted:
@@ -191,8 +218,7 @@ def selfies_to_graph_iterative(
                         start_idx += 1
 
                     ####### add group
-                    group_name = symbol[start_idx:-1]
-                    group = grammar.get_group(group_name)
+                    group = grammar.get_group(symbol[start_idx:-1])
 
                     if prev is None:
                         absolute = True
@@ -388,7 +414,7 @@ def selfies_to_graph_iterative(
     return mol
 
 
-def available_bonds(atom):
+def available_bonds(atom: Chem.Atom) -> int:
     atom.UpdatePropertyCache()
     return (
         get_bonding_capacity(atom.GetSymbol(), atom.GetFormalCharge())
@@ -397,8 +423,14 @@ def available_bonds(atom):
 
 
 def form_rings_bilocally_iterative(
-    mol, rings, place_from_idx, inverse_place, dummy_counter, group_atom, verbose=False
-):
+    mol: Chem.RWMol,
+    rings: List[Tuple[int, int, Tuple[int, Tuple[str, str]]]],
+    place_from_idx: Dict[int, int],
+    inverse_place: List[int],
+    dummy_counter: Counter,
+    group_atom: Dict[int, Tuple[Any, int]],
+    verbose: bool = False,
+) -> None:
     for ridx, lidx, bond_info in rings:
         # clamp lidx to inside the graph
         lplace = min(place_from_idx[lidx], len(place_from_idx) - 1)
@@ -502,15 +534,17 @@ def form_rings_bilocally_iterative(
             ratom.GetBonds()[0].SetBondType(bond_types[free])
 
 
-def group_decoder(grammar, selfies, verbose=False):
+def group_decoder(grammar: Any, selfies: str, verbose: bool = False) -> Chem.Mol:
     if not selfies:
         return Chem.Mol()
+
     try:
-        rings = []
-        place_from_idx = dict()
-        inverse_place = []
+        rings: List[Tuple[int, int, Tuple[int, Tuple[str, str]]]] = []
+        place_from_idx: Dict[int, int] = dict()
+        inverse_place: List[int] = []
         dummy_counter = Counter(1)
-        group_atom = dict()
+        group_atom: Dict[int, Tuple[Any, int]] = dict()
+
         mol = selfies_to_graph_iterative(
             grammar=grammar,
             symbol_iter=_tokenize_selfies(selfies),
