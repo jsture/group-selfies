@@ -5,7 +5,7 @@ from group_selfies.constants import ELEMENTS, INDEX_ALPHABET, INDEX_CODE, ORGANI
 from group_selfies.group_mol_graph import Atom
 
 
-def process_atom_symbol(symbol: str) -> Optional[Tuple[Any, Atom]]:
+def process_atom_symbol(symbol: str) -> Optional[Tuple[int, Optional[str], Atom]]:
     try:
         output = _PROCESS_ATOM_CACHE[symbol]
     except KeyError:

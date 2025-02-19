@@ -8,10 +8,10 @@ RDKit is required to use this package. Once it is installed, clone this reposito
 ```bash
 git clone https://github.com/aspuru-guzik-group/group-selfies
 ```
-and run 
+and run
 ```bash
 pip install .
-``` 
+```
 in the cloned folder.
 
 ## Introduction
@@ -19,11 +19,11 @@ Group SELFIES extends SELFIES with the ability to represent groups with single t
 
 | Encoding |
 |:--:|
-| ![Encoding process](encoding.gif) |
+| ![Encoding process](graphics/encoding.gif) |
 
 | Decoding |
 |:--:|
-| ![Decoding process](decoding.gif) |
+| ![Decoding process](graphics/decoding.gif) |
 
 
 
@@ -39,4 +39,3 @@ See [tutorial.ipynb](tutorial/tutorial.ipynb) for details on usage. For key clas
 | ``grammar.decoder`` | Decodes a Group SELFIES string to its corresponding molecule.        |
 | ``grammar.full_encoder``       | Extracts groups from a molecule and encodes it, essentially a combination of ``grammar.extract_groups`` and ``grammar.encoder``. Mainly for convenience. |
 | ``group_selfies.fragment_mols``       | Fragments a set of molecules into a set of reasonable groups.       |
-

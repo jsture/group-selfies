@@ -1,5 +1,6 @@
+from __future__ import annotations
 from group_selfies.bond_constraints import get_bonding_capacity
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Set, Tuple, Any
 import networkx as nx
 from rdkit.Chem.rdchem import BondType as BT
 from rdkit import Chem
@@ -26,18 +27,32 @@ class Atom:
         charge: int = 0,
         radical: int = 0,
     ):
-        self.index = None
-        self.element = element
-        self.isotope = isotope
-        self.chirality = chirality
-        self.h_count = h_count
-        self.charge = charge
-        self.group_tag = None
-        self.bond_count = 0
-        self.pos = None
-        self.radical = None
-        if not self.charge:
-            self.radical = radical
+        self._index: int = -1  # Initialize with invalid index
+        self.element: str = element
+        self.isotope: Optional[int] = isotope
+        self.chirality: Optional[str] = chirality
+        self.h_count: Optional[int] = h_count
+        self.charge: int = charge
+        self.group_tag: Optional[Tuple[int, int]] = None
+        self.bond_count: int = 0
+        self.pos: Optional[int] = None
+        self.radical: Optional[int] = None if charge else radical
+
+    @property
+    def index(self) -> int:
+        """Get atom index. Raises ValueError if index not set."""
+        if self._index < 0:
+            raise ValueError("Atom index not initialized")
+        return self._index
+
+    @index.setter
+    def index(self, value: int) -> None:
+        """Set atom index. Raises ValueError if invalid or already set."""
+        if value < 0:
+            raise ValueError(f"Invalid atom index: {value}")
+        if self._index >= 0:
+            raise ValueError(f"Atom index already set to {self._index}")
+        self._index = value
 
     def max_bonds(self):
         bond_cap = get_bonding_capacity(self.element, self.charge)
@@ -78,15 +93,18 @@ class DirectedBond:
 
 
 class MolecularGraph:
-    def __init__(self, mol=None, groups=[], smarts=False):
+    def __init__(
+        self, mol: Optional[Chem.Mol] = None, groups: list = [], smarts: bool = False
+    ):
         """Precondition: groups are disjoint in mol."""
-        self.atoms = list()  # stores atoms in this graph
-        self.bond_dict = dict()  # stores all bonds in this graph
-        self.diG = nx.DiGraph()  # directed graph
-        self.bond_counts = list()  # stores number of bonds an atom has made
-        self.groups = list()
-        self.mol = mol
-        self.visited = set()
+        self.atoms: List[Atom] = []
+        self.bond_dict: Dict[Tuple[int, int], DirectedBond] = {}
+        self.diG: nx.DiGraph = nx.DiGraph()
+        self.bond_counts: List[int] = []
+        self.groups: list = []
+        self.mol: Optional[Chem.Mol] = mol
+        self.visited: Set[int] = set()
+        self._next_atom_index: int = 0
 
         if mol is not None:
             if not smarts:
@@ -138,8 +156,12 @@ class MolecularGraph:
     def __len__(self):
         return len(self.diG)
 
-    def __getitem__(self, key):
-        return self.diG.nodes[key]["atom"]
+    def __getitem__(self, key: int) -> Atom:
+        """Get atom by index. Raises KeyError if index invalid."""
+        try:
+            return self.diG.nodes[key]["atom"]
+        except KeyError:
+            raise KeyError(f"Invalid atom index: {key}")
 
     def __repr__(self):
         s = "ATOMS\n"
@@ -178,7 +200,11 @@ class MolecularGraph:
         return [self.get_bond(u, v) for u, v in self.diG.in_edges(dst)]
 
     def add_atom(self, atom: Atom) -> None:
-        atom.index = len(self)
+        """Add atom to graph with next available index."""
+        if atom._index >= 0:
+            raise ValueError(f"Atom already has index {atom._index}")
+        atom.index = self._next_atom_index
+        self._next_atom_index += 1
         self.diG.add_node(atom.index, atom=atom)
 
     def add_bond(
@@ -226,11 +252,16 @@ class MolecularGraph:
         group.index = group_idx
         self.groups.append(group)
 
-    def get_group(self, atom_idx):
-        """Gets the group that atom_idx belongs to. Returns None if atom_idx does not belong to a group."""
+    def get_group(self, atom_idx: int) -> Optional[Group]:
+        """Gets the group that atom_idx belongs to."""
+        if not isinstance(atom_idx, int):
+            raise TypeError(f"atom_idx must be int, got {type(atom_idx)}")
+        if atom_idx < 0:
+            raise ValueError(f"Invalid atom index: {atom_idx}")
         for group in self.groups:
             if atom_idx in group.member_idxs:
                 return group
+        return None
 
     def get_inner_idx(self, atom_idx):
         """Gets the atom's inner idx if it belongs to a group, returns None otherwise"""
