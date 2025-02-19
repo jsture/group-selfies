@@ -11,6 +11,7 @@ from typing import (
     Any,
     TypeVar,
     Generic,
+    Protocol,
 )
 from itertools import chain
 from collections import defaultdict
@@ -161,8 +162,18 @@ def set_id(atom: Chem.Atom, idx: int) -> None:
 _exhausted = object()
 
 
+class Group(Protocol):
+    """Type protocol for group objects"""
+
+    mol: Chem.Mol
+    attachment_points: List[int]
+    parent_map: Dict[int, int]
+
+    def attachment_valency(self, idx: int) -> int: ...
+
+
 def selfies_to_graph_iterative(
-    grammar: Any,
+    grammar: Any,  # TODO: Add proper grammar protocol
     symbol_iter: Iterator[str],
     selfies: Optional[str] = None,
     rings: Optional[List[Tuple[int, int, Tuple[int, Tuple[str, str]]]]] = None,
@@ -170,12 +181,25 @@ def selfies_to_graph_iterative(
     place_from_idx: Optional[Dict[int, int]] = None,
     inverse_place: Optional[List[int]] = None,
     previous_att_idx: Optional[int] = None,
-    group_atom: Optional[Dict[int, Tuple[Any, int]]] = None,
+    group_atom: Optional[Dict[int, Tuple[Group, int]]] = None,
     verbose: bool = False,
 ) -> Chem.RWMol:
+    # Initialize optional arguments with defaults
+    rings = rings or []
+    place_from_idx = place_from_idx or {}
+    inverse_place = inverse_place or []
+    group_atom = group_atom or {}
+    dummy_counter = dummy_counter or Counter(1)
+
     mol = Chem.RWMol()
-    stack = [(None, 0, False)]
-    while (symbol := next(symbol_iter, _exhausted)) != _exhausted:
+    stack: List[Tuple[Optional[int], Union[int, Group], bool, ...]] = [(None, 0, False)]
+    while True:
+        symbol = next(symbol_iter, _exhausted)
+        if symbol is _exhausted:
+            break
+        if not isinstance(symbol, str):
+            raise TypeError(f"Expected string symbol, got {type(symbol)}")
+
         if not len(stack):
             break
         merged_state = stack.pop()
@@ -191,7 +215,7 @@ def selfies_to_graph_iterative(
         for _ in range(1):
             if prev != -1:
                 # Case 0: Normal state
-                if ":" == symbol[1]:
+                if len(symbol) >= 2 and symbol[1] == ":":
                     # Subcase 0.0: Group symbol (e.g. [:benzene])
                     absolute = False
                     group_idx = -1
@@ -291,7 +315,7 @@ def selfies_to_graph_iterative(
                         group_idx = 0
                     new_state = (-1, group, False, member_idxs, group_idx)
 
-                elif "ch" == symbol[-3:-1]:
+                elif len(symbol) >= 3 and symbol[-3:-1] == "ch":
                     # Subcase 0.1: Branch symbol (e.g. [Branch])
                     if att or state <= 1:
                         continue
@@ -303,7 +327,7 @@ def selfies_to_graph_iterative(
                     stack.append((prev, next_state, att, *additional_info))
                     new_state = (prev, binit_state, att, *additional_info)
 
-                elif "ng" == symbol[-4:-2]:
+                elif len(symbol) >= 4 and symbol[-4:-2] == "ng":
                     # Subcase 0.2: Ring symbol (e.g. [Ring2])
                     output = process_ring_symbol(symbol)
                     if output is None:
@@ -338,7 +362,7 @@ def selfies_to_graph_iterative(
                         rings.append((prev, lidx, bond_info))
                         new_state = (prev, next_state, att, *additional_info)
 
-                elif "[epsilon]" == symbol:
+                elif symbol == "[epsilon]":
                     # Subcase 0.3: [epsilon]
                     pass
                 elif symbol == NEGATIVE_RING_SYMBOL:
@@ -428,7 +452,7 @@ def form_rings_bilocally_iterative(
     place_from_idx: Dict[int, int],
     inverse_place: List[int],
     dummy_counter: Counter,
-    group_atom: Dict[int, Tuple[Any, int]],
+    group_atom: Dict[int, Tuple[Group, int]],
     verbose: bool = False,
 ) -> None:
     for ridx, lidx, bond_info in rings:
@@ -540,10 +564,10 @@ def group_decoder(grammar: Any, selfies: str, verbose: bool = False) -> Chem.Mol
 
     try:
         rings: List[Tuple[int, int, Tuple[int, Tuple[str, str]]]] = []
-        place_from_idx: Dict[int, int] = dict()
+        place_from_idx: Dict[int, int] = {}
         inverse_place: List[int] = []
         dummy_counter = Counter(1)
-        group_atom: Dict[int, Tuple[Any, int]] = dict()
+        group_atom: Dict[int, Tuple[Group, int]] = {}
 
         mol = selfies_to_graph_iterative(
             grammar=grammar,
